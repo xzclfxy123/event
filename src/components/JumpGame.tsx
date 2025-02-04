@@ -16,8 +16,11 @@ import { Card } from "./ui/card";
 import Image from "next/image";
 import { useWallet } from "@/app/context/WalletContext";
 import { UserAvatar } from "@/components/UserAvatar";
+import Link from "next/link";
+import { toast } from "@/hooks/use-toast";
 
 const TOTAL_CELLS = 100;
+// const MOVE_DELAY = 300;
 
 function generateBoard(): Cell[] {
   const board: Cell[] = [];
@@ -36,7 +39,7 @@ function generateBoard(): Cell[] {
         };
 
         if (cell.type === "surprise") {
-          for (const [reward, cells] of Object.entries(REWARDS)) {
+          for (const [reward, { cells }] of Object.entries(REWARDS)) {
             if (cells.includes(number)) {
               cell.reward = reward as RewardType;
               break;
@@ -55,7 +58,7 @@ function generateBoard(): Cell[] {
 const getRemainingTimes = async (walletAddress: string) => {
   try {
     const response = await fetch(
-      `http://api.deworkhub.com/api/users/${walletAddress}`
+      `https://api.deworkhub.com/api/users/${walletAddress}`
     );
 
     if (response.ok) {
@@ -70,30 +73,11 @@ const getRemainingTimes = async (walletAddress: string) => {
   }
 };
 
-// 获取用户目前的格子位置
-const getCurrentPosition = async (walletAddress: string) => {
-  try {
-    const response = await fetch(
-      `http://api.deworkhub.com/api/users/${walletAddress}`
-    );
-
-    if (response.ok) {
-      const data = await response.json();
-      return data.completed_steps;
-    } else {
-      throw new Error("获取剩余次数失败");
-    }
-  } catch (error) {
-    console.error("获取剩余次数失败:", error);
-    return 0;
-  }
-}
-
 // 更新用户积分的函数
 const updateUserScore = async (walletAddress: string, newScore: number) => {
   try {
     const response = await fetch(
-      `http://api.deworkhub.com/api/users/${walletAddress}`,
+      `https://api.deworkhub.com/api/users/${walletAddress}`,
       {
         method: "PUT",
         headers: {
@@ -124,7 +108,7 @@ const updateFreeAttemptsToday = async (
 ) => {
   try {
     const response = await fetch(
-      `http://api.deworkhub.com/api/users/${walletAddress}`,
+      `https://api.deworkhub.com/api/users/${walletAddress}`,
       {
         method: "PUT",
         headers: {
@@ -151,7 +135,7 @@ const updateRemainingTimes = async (
 ) => {
   try {
     const response = await fetch(
-      `http://api.deworkhub.com/api/users/${walletAddress}`,
+      `https://api.deworkhub.com/api/users/${walletAddress}`,
       {
         method: "PUT",
         headers: {
@@ -188,7 +172,7 @@ const payTokens = async (walletAddress: string, amount: number) => {
       await transaction.wait(); // 等待交易确认
 
       // 代币支付成功后，调用API
-      const response = await fetch("http://api.deworkhub.com/api/task-user", {
+      const response = await fetch("https://api.deworkhub.com/api/task-user", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -221,6 +205,52 @@ const payTokens = async (walletAddress: string, amount: number) => {
   }
 };
 
+// 获取当前位置
+const getCurrentPosition = async (walletAddress: string) => {
+  try {
+    const response = await fetch(
+      `https://api.deworkhub.com/api/users/${walletAddress}`
+    );
+    const data = await response.json();
+    if (data.success && data.data) {
+      console.log("获取当前位置成功:", data.data.completed_steps);
+      return data.data.completed_steps;
+    } else {
+      throw new Error("获取剩余次数失败");
+    }
+  } catch (error) {
+    console.error("获取剩余次数失败:", error);
+    return 0;
+  }
+};
+
+// 更新当前位置
+const updateCurrentPosition = async (
+  walletAddress: string,
+  currentPosition: number
+) => {
+  try {
+    const response = await fetch(
+      `https://api.deworkhub.com/api/users/${walletAddress}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          address: walletAddress,
+          completed_steps: currentPosition,
+        }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error("更新位置失败");
+    }
+  } catch (error) {
+    console.error("更新当前位置失败:", error);
+  }
+};
+
 export default function JumpingGame({
   score,
   freeAttemptsToday,
@@ -243,62 +273,51 @@ export default function JumpingGame({
   const [diceImage, setDiceImage] = useState<string>(""); // 用于存储骰子图像路径
   const [remainingTimes, setRemainingTimes] = useState<number>(0); // 用户剩余次数
   const { walletAddress } = useWallet();
+  const [gameCompleted, setGameCompleted] = useState(false); // 游戏是否完成
 
   const board = generateBoard();
 
-  // 在组件加载时获取用户剩余次数
   useEffect(() => {
     if (walletAddress) {
+      // 获取用户剩余次数
       const fetchRemainingTimes = async () => {
         const times = await getRemainingTimes(walletAddress);
         setRemainingTimes(times);
-        onRemainingTimesChange(times);
       };
       const fetchCurrentPosition = async () => {
         const position = await getCurrentPosition(walletAddress);
         setPlayerPosition(position);
+        if (position === TOTAL_CELLS) {
+          setGameCompleted(true);
+        }
+        console.log("current position", position);
       };
       fetchRemainingTimes();
       fetchCurrentPosition();
     }
-  }, [walletAddress, onRemainingTimesChange]);
+  }, [walletAddress]);
 
   const rollDice = useCallback(async () => {
-    const updateScore = async (
-      walletAddress: string,
-      score: number,
-      freeAttemptsToday: number,
-      remainingTimes: number
-    ) => {
+    if (gameCompleted) return;
+
+    const updateScore = async (walletAddress: string, score: number) => {
       const newScore = score;
 
-      if (freeAttemptsToday === 0 && remainingTimes <= 0) {
-        const paymentSuccess = await payTokens(walletAddress, 0.001); // 支付0.001代币
-        if (paymentSuccess) {
-          // 代币支付后更新积分
-          await updateUserScore(walletAddress, newScore);
-          onScoreChange(newScore);
-          console.log("积分更新成功");
-        } else {
-          console.error("代币支付失败，无法更新积分");
-        }
-      } else {
-        // 免费更新积分
-        await updateUserScore(walletAddress, newScore);
-        onScoreChange(newScore);
-        console.log("免费积分更新成功");
-      }
+      await updateUserScore(walletAddress, newScore);
+      onScoreChange(newScore);
     };
 
     if (!walletAddress) {
-      alert("钱包地址无效，请连接钱包！");
+      toast({
+        title: "钱包地址无效，请连接钱包！",
+      });
       return; // 如果没有钱包地址，终止函数
     }
 
     // 获取用户的剩余次数
     const getRemainingTimes = async () => {
       const response = await fetch(
-        `http://api.deworkhub.com/api/users/${walletAddress}`
+        `https://api.deworkhub.com/api/users/${walletAddress}`
       );
       const data = await response.json();
       if (data.success && data.data) {
@@ -310,13 +329,14 @@ export default function JumpingGame({
 
     const times = await getRemainingTimes();
     setRemainingTimes(times);
-    onRemainingTimesChange(times);
 
     // 如果没有免费次数和剩余次数，则需要支付代币购买
     if (freeAttemptsToday === 0 && remainingTimes <= 0) {
-      const paymentSuccess = await payTokens(walletAddress, 0.001); // 支付10代币
+      const paymentSuccess = await payTokens(walletAddress, 10); // 支付10代币
       if (!paymentSuccess) {
-        alert("代币支付失败，无法继续摇骰子！");
+        toast({
+          title: "代币支付失败，无法继续摇骰子！",
+        });
         return; // 支付失败则终止函数执行
       }
     } else if (freeAttemptsToday > 0) {
@@ -334,7 +354,10 @@ export default function JumpingGame({
       onRemainingTimesChange(updatedRemainingTimes);
     } else {
       // 没有剩余次数和免费次数
-      alert("您没有足够的免费次数和剩余次数！");
+      toast({
+        title: "您今天的免费次数已用完，之后将使用普通次数。",
+        description: "提示：请再次点击摇骰子继续游戏",
+      });
       return; // 终止函数执行
     }
 
@@ -347,6 +370,7 @@ export default function JumpingGame({
     const newDiceValue = Math.floor(Math.random() * 6) + 1;
     setDiceValue(newDiceValue);
     setRollingDice(false);
+    // movePlayer(newDiceValue);
 
     const diceImages = [
       "/1.png",
@@ -362,20 +386,29 @@ export default function JumpingGame({
     await new Promise((resolve) => setTimeout(resolve, 2000)); // 2秒延迟
     const newPosition = Math.min(playerPosition + newDiceValue, TOTAL_CELLS);
     setPlayerPosition(newPosition);
+    await updateCurrentPosition(walletAddress, newPosition);
 
-    const cell = board.find(
-      (cell) => cell.number === newPosition && !cell.isEmpty
+    let cell = board.find(
+      (cell) => cell.number === newDiceValue && !cell.isEmpty
     )!;
+
+    if (cell.type === "surprise") {
+      // 如果当前玩家位置为“惊喜”类型，则更新积分为惊喜积分+(普通积分-1)
+      const newScore = cell.number + (newDiceValue - 1);
+      cell = board.find(
+        (cell) => cell.number === newScore && !cell.isEmpty
+      )!;
+      updateScore(walletAddress, score + newScore);
+    } else {
+      if (cell.type === "normal") {
+        cell = board.find(
+          (cell) => cell.number === newDiceValue && !cell.isEmpty
+        )!;
+        updateScore(walletAddress, score + newDiceValue);
+      }
+    }
     setCurrentCell(cell);
     setDialogOpen(true);
-
-    // 更新积分
-    updateScore(
-      walletAddress,
-      score + newDiceValue,
-      freeAttemptsToday,
-      remainingTimes
-    );
 
     setLoading(false);
   }, [
@@ -388,13 +421,57 @@ export default function JumpingGame({
     onScoreChange,
     onFreeAttemptsChange,
     onRemainingTimesChange,
+    gameCompleted,
   ]);
+
+  // 移动
+  // const movePlayer = useCallback(
+  //   (steps: number) => {
+  //     setIsMoving(true)
+  //     let currentStep = 0
+  //     let accumulatedScore = 0
+
+  //     const moveInterval = setInterval(() => {
+  //       if (currentStep < steps) {
+  //         setPlayerPosition((prev) => {
+  //           const newPosition = Math.min(prev + 1, TOTAL_CELLS)
+  //           const cell = board.find((c) => c.number === newPosition && !c.isEmpty)
+  //           if (cell) {
+  //             accumulatedScore += cell.type === "surprise" ? cell.number : 1
+  //           }
+  //           if (newPosition === TOTAL_CELLS) {
+  //             clearInterval(moveInterval)
+  //             setGameCompleted(true)
+  //           }
+  //           return newPosition
+  //         })
+  //         currentStep++
+  //       } else {
+  //         clearInterval(moveInterval)
+  //         setIsMoving(false)
+  //         const newPosition = Math.min(playerPosition + steps, TOTAL_CELLS)
+  //         const cell = board.find((c) => c.number === newPosition && !c.isEmpty)
+  //         if (cell) {
+  //           setCurrentCell(cell)
+  //           setDialogOpen(true)
+  //           setScore((prevScore) => {
+  //             const newScore = prevScore + accumulatedScore
+  //             return newScore
+  //           })
+  //           // Move the onScoreUpdate call outside of setScore
+  //           onScoreUpdate(score + accumulatedScore)
+  //         }
+  //       }
+  //     }, MOVE_DELAY)
+  //   },
+  //   [playerPosition, board, onScoreUpdate, score],
+  // )
 
   return (
     <div className="flex flex-col items-center justify-center">
       <Card className="bg-transparent border-0 shadow-none">
         <div className="relative w-full max-w-6xl p-4 rounded-lg overflow-hidden">
-          <div className="grid grid-cols-24 gap-1 bg-transparent">
+          <div className="grid grid-cols-24 gap-1 gap-x-2 space-x-2 bg-transparent">
             {board.map((cell, index) => (
               <div
                 key={index}
@@ -403,46 +480,23 @@ export default function JumpingGame({
                 }`}
               >
                 {!cell.isEmpty && (
-                  <Button
-                    className={`w-full bg-transparent h-full border-0 shadow-none ${
+                  <div
+                    className={`h-10 w-16 shadow-none opacity-100 ${
                       cell.number === playerPosition
                         ? "text-blue-500"
                         : cell.type === "surprise"
                         ? "bg-[url('/surprise-image.png')] bg-cover bg-center bg-[length:140%]"
                         : "bg-[url('/common-image.png')] bg-cover bg-center bg-[length:140%]"
                     }`}
-                    disabled={true}
                   >
-                    {/* {cell.type === "surprise" ? (
-                      <Image
-                        src="/surprise-image.png"
-                        alt="surprise"
-                        width={48}
-                        height={48}
-                        className="absolute inset-0 w-full h-full object-cover"
-                      />
-                    ) : (
-                      <Image
-                        src="/common-image.png"
-                        alt="common"
-                        width={48}
-                        height={48}
-                        className="absolute inset-0 w-full h-full object-cover"
-                      />
-                    )} */}
-
                     {cell.number === playerPosition ? (
                       <motion.div
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
                         transition={{ duration: 0.3 }}
-                        className="relative inset-0 flex items-center justify-center bg-[url('/avater.png')] bg-cover bg-center bg-[length:150%]"
+                        className="relative inset-0 flex items-center justify-center"
                       >
-                        <UserAvatar
-                          address={walletAddress}
-                          size={48}
-                          className="absolute w-48 h-48 z-10"
-                        />
+                        <UserAvatar address={walletAddress!} size={32} />
                         {/* <Image
                           src="/avater.png"
                           width={48}
@@ -454,7 +508,7 @@ export default function JumpingGame({
                     ) : (
                       ""
                     )}
-                  </Button>
+                  </div>
                 )}
               </div>
             ))}
@@ -474,7 +528,7 @@ export default function JumpingGame({
       <div className="flex justify-center space-x-4 mt-4">
         <Button
           onClick={rollDice}
-          disabled={playerPosition === TOTAL_CELLS || loading}
+          disabled={playerPosition === TOTAL_CELLS || loading || gameCompleted}
           className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white"
           size="lg"
         >
@@ -494,6 +548,18 @@ export default function JumpingGame({
       {!rollingDice && diceImage && (
         <div className="absolute inset-0 flex justify-center items-center bg-opacity-50 bg-black z-10">
           <Image src={diceImage} alt="Dice" width={100} height={100} />
+        </div>
+      )}
+
+      {gameCompleted && (
+        <div className="mt-4 text-center">
+          <h2 className="text-2xl font-bold mb-2">恭喜您通关游戏！</h2>
+          <p className="mb-4">您已经到达终点，请前往奖励中心兑换您的奖励。</p>
+          <Link href="/rewards" passHref>
+            <Button className="bg-green-500 hover:bg-green-600 text-white">
+              进入奖励中心
+            </Button>
+          </Link>
         </div>
       )}
 

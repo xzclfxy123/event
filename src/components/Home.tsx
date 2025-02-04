@@ -1,4 +1,4 @@
-"use client";
+"use client"; 
 
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
@@ -8,6 +8,7 @@ import { useWallet } from "@/app/context/WalletContext"
 
 declare global {
   interface Window {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ethereum?: any;
   }
 }
@@ -15,7 +16,7 @@ declare global {
 const fetchUserData = async (walletAddress: string) => {
   try {
     const response = await fetch(
-      `http://api.deworkhub.com/api/users/${walletAddress}`
+      `https://api.deworkhub.com/api/users/${walletAddress}`
     );
 
     // 检查响应是否为 200 OK
@@ -43,15 +44,20 @@ const fetchUserData = async (walletAddress: string) => {
   }
 };
 
+// 添加新用户
 const addUserToDatabase = async (walletAddress: string) => {
-  const response = await fetch("http://api.deworkhub.com/api/users", {
+  const response = await fetch("https://api.deworkhub.com/api/users", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       address: walletAddress,
-      points: 0, // 初始积分为 0
+      points: 0,
+      completed_steps: 0,
+      freeAttemptsToday: 1,
+      lastResetDate: null,
+      RemainingTimes: 0,
     }),
   });
   const data = await response.json();

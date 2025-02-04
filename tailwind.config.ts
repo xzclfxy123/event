@@ -9,6 +9,15 @@ export default {
   ],
   theme: {
     extend: {
+      animation: {
+        scroll: "scroll 50s linear infinite",
+      },
+      keyframes: {
+        scroll: {
+          "0%": { transform: "translateX(0)" },
+          "100%": { transform: "translateX(-50%)" },
+        },
+      },
       colors: {
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",

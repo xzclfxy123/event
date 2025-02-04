@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Background } from "@/components/ui/backgroud";
 import { WalletProvider } from "./context/WalletContext";
 import { Toaster } from "@/components/ui/toaster"
+import ScrollingLogoBanner from "@/components/ScrollingLogo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -35,6 +36,7 @@ export default function RootLayout({
         )}
       >
         <WalletProvider>
+          <ScrollingLogoBanner />
           <div className="w-full min-h-[6vh]">
             <Navbar />
           </div>
